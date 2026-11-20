@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Build survey/INDEX.md + README.md from survey/*.md  (v261120)
 Usage: build_docs.py [--write]
+README.md is a flat catalogue: one H1 per domain (中文 ｜ English), then every
+survey under it as `English ｜ 中文`, linked to its file. No other prose.
 """
 import os, re, sys, collections
 
@@ -145,7 +147,6 @@ for r in rows:
 for c in by_cat:
     by_cat[c].sort(key=lambda r: -r["id"])
 used = [(c, len(v)) for c, v in by_cat.items() if v]
-newest = sorted(rows, key=lambda r: -r["id"])[:12]
 id_lo = min(r["id"] for r in rows)
 id_hi = max(r["id"] for r in rows)
 
@@ -178,88 +179,57 @@ for c, cnt in used:
 INDEX = "\n".join(L) + "\n"
 
 # ------------------------------------------------------------------ README --
-half = (len(used) + 1) // 2
-nav = ["| 主题 | 篇数 | 主题 | 篇数 |", "| --- | --: | --- | --: |"]
-for i in range(half):
-    a = used[i]
-    ka = "survey/INDEX.md#cat-%d" % (order.index(a[0]) + 1)
-    if i + half < len(used):
-        b = used[i + half]
-        kb = "survey/INDEX.md#cat-%d" % (order.index(b[0]) + 1)
-        nav.append("| [%s](%s) | %d | [%s](%s) | %d |" % (a[0], ka, a[1], b[0], kb, b[1]))
-    else:
-        nav.append("| [%s](%s) | %d |  |  |" % (a[0], ka, a[1]))
-NAV = "\n".join(nav)
-LATEST = "".join("- [%s](survey/%s) · #%d · [原文](%s)\n"
-                 % (esc(r["zh"]), r["file"], r["id"], r["link"]) for r in newest)
+# Flat catalogue: one H1 per domain (中文 ｜ English), then every survey in it
+# as "English ｜ 中文", linked to its file, plus the ArxivReview source link.
+# No other prose.
+CAT_EN = {
+    "大模型与智能体": "Large Language Models & Agents",
+    "学习理论·优化与方法": "Learning Theory, Optimization & Methods",
+    "视觉感知与识别": "Visual Perception & Recognition",
+    "医学与生命科学": "Medicine & Life Sciences",
+    "视觉-语言与多模态": "Vision-Language & Multimodal",
+    "三维重建与神经渲染": "3D Reconstruction & Neural Rendering",
+    "强化学习与具身智能": "Reinforcement Learning & Embodied AI",
+    "自然语言处理": "Natural Language Processing",
+    "安全·隐私·可信治理": "Security, Privacy & Trustworthy AI",
+    "视频理解与生成": "Video Understanding & Generation",
+    "语音与音频": "Speech & Audio",
+    "遥感·地球观测·环境气候": "Remote Sensing, Earth Observation & Climate",
+    "图像生成与编辑": "Image Generation & Editing",
+    "数据工程与知识构建": "Data Engineering & Knowledge Construction",
+    "社会·教育·法律·金融": "Society, Education, Law & Finance",
+    "AI for Science 与科学计算": "AI for Science & Scientific Computing",
+    "无线感知·通信·传感": "Wireless Sensing, Communications & Sensing",
+    "城市·交通·自动驾驶": "Urban Mobility & Autonomous Driving",
+    "人脸与生物特征": "Faces & Biometrics",
+    "工业·能源·工程系统": "Industry, Energy & Engineering Systems",
+    "评测·基准与方法论": "Evaluation, Benchmarks & Methodology",
+    "低层视觉与计算成像": "Low-Level Vision & Computational Imaging",
+    "系统·交互与效率": "Systems, Interaction & Efficiency",
+    "综合与其他": "General & Miscellaneous",
+}
 
-README = """# arxivreview · AI 领域综述中文库
+# Domains by size (largest first), then corpus order; entries by English title.
+CAT_ORDER = sorted([c for c in order if by_cat[c]],
+                   key=lambda c: (-len(by_cat[c]), order.index(c)))
 
-**%d 篇**领域综述中文导读，覆盖 **%d** 个主题方向，累计 **%.1f MiB**。版本 **%s** ｜ 原文入口 [arxivreview.com](https://www.arxivreview.com)
+# Titles almost all begin with "A Survey of …", so sort on the phrase that
+# follows it: that keeps "A Survey on X" next to "A Survey of X".
+LEAD = re.compile(r"^(?:an?|the)?\s*(?:brief|comprehensive|systematic|introductory)?\s*"
+                  r"surveys?(?:\s+(?:of|on|in|for|towards|toward|into))?\s+", re.I)
 
-全部综述在 [`survey/`](survey/) 目录，一篇一个 Markdown 文件；带分类的完整清单见 **[survey/INDEX.md](survey/INDEX.md)**。
+def sort_key(r):
+    return (LEAD.sub("", r["en"], count=1).lower(), r["zh"])
 
-## 主题导航
-
-%s
-
-## 最新收录
-
-%s
-## 文件命名
-
-```
-survey/<收录序号>_survey_<全局编号>_<中文标题>.md
-
-02_survey_1135_零样本与组合零样本学习方法综述.md
-└ 收录序号 1…%d（1–99 补零两位，100 起不补零）
-             └ 全局编号 %d…%d（连续、无缺号、不补零）
-                          └ 中文标题，超长按 24 字截断
-```
-
-每篇正文结构固定，便于按需跳读：
-
-| 位置 | 内容 |
-| --- | --- |
-| 第 1 行 | `# <英文标题> ｜<中文标题> ｜arxivreview` |
-| 第 3 行 | `综述原文见 [ArxivReview](https://www.arxivreview.com/surveys/…)` |
-| `## 导读` | 一段式领域摘要，末尾给出一句话核心问题 |
-| `## 1. 研究背景、问题结构与演进脉络` | 问题定义、范式转折、子问题依赖关系 |
-| `## 2. 方法体系` | 按年份排列的技术演进时间线与方法路线划分 |
-
-## 本地检索
-
-```bash
-git clone https://github.com/arxivreview/review.git && cd review
-
-grep -rl --include='*.md' '世界模型' survey/          # 按关键词找相关综述
-grep -m1 -H '^#' survey/03_survey_1134_*.md           # 取某篇的中英标题
-grep -c '' survey/*.md | tail -1                      # 单篇行数
-```
-
-## 数据口径
-
-- 篇数 **%d**，全局编号 `%d–%d`，连续、无缺号、无重复。
-- 主题分类由脚本按标题关键词自动归类，**仅用于导航**，与编号无关；边界主题可能归入更邻近的桶。
-- 重建索引与本页统计：
-
-```bash
-python3 scripts/build_docs.py           # 试运行，打印分类分布
-python3 scripts/build_docs.py --write   # 重新生成 survey/INDEX.md 与 README.md
-```
-
-## 更新日志
-
-| 版本 | 变更 |
-| --- | --- |
-| **%s** | 收录 `survey/` 全量 **%d** 篇综述（%.1f MiB）；新增分类总索引 [`survey/INDEX.md`](survey/INDEX.md)；重写根 README（主题导航、命名规范、正文结构、检索示例）；新增 `VERSION`。 |
-| 初始 | 仓库初始化，仅 `README.md`。 |
-
-## 说明
-
-- 本仓库收录综述的中文导读正文；完整原文、图表与更新以 [ArxivReview](https://www.arxivreview.com) 为准。
-- 文中论文编号（P1、P25…）对应原页面的文献列表，本仓库不复制该列表。
-""" % (n, len(used), mib, VERSION, NAV, LATEST, n, id_lo, id_hi, n, id_lo, id_hi, VERSION, n, mib)
+R = []
+for c in CAT_ORDER:
+    R.append("# %s ｜ %s" % (c, CAT_EN.get(c, c)))
+    R.append("")
+    for r in sorted(by_cat[c], key=sort_key):
+        R.append("- [%s ｜ %s](survey/%s) · [原文](%s)"
+                 % (esc(r["en"]), esc(r["zh"]), r["file"], r["link"]))
+    R.append("")
+README = "\n".join(R).rstrip("\n") + "\n"
 
 print("files=%d  %.1f MiB  ids=%d-%d  cats=%d" % (n, mib, id_lo, id_hi, len(used)))
 for c, cnt in used:
