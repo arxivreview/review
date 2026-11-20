@@ -1,0 +1,3 @@
+# 本仓库为纯文本（Markdown / Python）：统一以 LF 存库与工作区，
+# 避免 Windows 侧 core.autocrlf=true 与 WSL 两侧交替写入产生换行符抖动。
+* text=auto eol=lf
